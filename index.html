@@ -9,6 +9,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Inkstride v21r77</title>
 <!--
+  v60: 上部ボタンを #topbar(左右2グループ, flex) に集約. ステータスバー分だけ下げ, 幅不足時は均等縮小. FIT/90° の無反応を修正.
+  v59-air: ブラシ形状「ソフト」を削除し「エア」(ガウス状+スタンプ式+蓄積, 不透明度=最大濃度) に置換.
+           鉛筆/エアのスタンプ式ストロークを undo/タイムラインに記録するよう修正.
   v59: 消しゴムをペン/マーカーと共通経路化 (calcD/_calcPointOpac/入り抜き/stabAdd が TOOLS.eraser 参照のみ).
        設定UIに 始点無視/入り/抜き/筆圧→不透明度カーブを追加. リセットの項目欠落修正. 重複・未使用コード削除.
   Inkstride v21r77 (BinaryPaint v20 派生)
@@ -84,7 +87,7 @@ html,body{width:100%;height:100%;height:-webkit-fill-available;overflow:hidden;b
 #nd-discard{border-color:var(--red);color:var(--red)}
 #nd-cancel{border-color:var(--bd2);color:var(--tx2)}
 /* Top panels */
-.toppanel{contain:layout style;position:fixed;top:44px;z-index:219;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;display:none;touch-action:manipulation}
+.toppanel{contain:layout style;position:fixed;top:calc(var(--sat) + 44px);z-index:219;background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;display:none;touch-action:manipulation}
 .toppanel.open{display:block}
 #sz-panel{left:10px;min-width:228px}
 #sv-panel{right:10px;min-width:260px}
@@ -217,11 +220,11 @@ input[type=range].native::-webkit-slider-thumb{-webkit-appearance:none;width:22p
 #ruler-btn.snap{background:#1a2535;border-color:var(--grn)}
 #ruler-btn.snap .lbtn-ico,#ruler-btn.snap .lbtn-lbl{color:var(--grn)}
 /* HUD */
-#badge{position:fixed;top:82px;right:16px;left:auto;transform:none;background:#7f1d1d;color:#fca5a5;padding:4px 16px;border-radius:8px;font-size:11px;pointer-events:none;z-index:300;display:none;font-family:'DM Mono',monospace}
+#badge{position:fixed;top:calc(var(--sat) + 82px);right:16px;left:auto;transform:none;background:#7f1d1d;color:#fca5a5;padding:4px 16px;border-radius:8px;font-size:11px;pointer-events:none;z-index:300;display:none;font-family:'DM Mono',monospace}
 #badge.show{display:block}
 #sel-hint{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);background:#172554;color:#93c5fd;padding:6px 18px;border-radius:8px;font-size:11px;pointer-events:none;z-index:300;display:none;white-space:nowrap}
 #sel-hint.show{display:block}
-#toast{position:fixed;top:50px;right:16px;left:auto;bottom:auto;transform:none;background:var(--sf);border:1px solid var(--bd2);color:var(--tx);padding:6px 18px;border-radius:8px;font-size:12px;pointer-events:none;z-index:999;display:none;white-space:nowrap;max-width:60vw;overflow:hidden;text-overflow:ellipsis}
+#toast{position:fixed;top:calc(var(--sat) + 50px);right:16px;left:auto;bottom:auto;transform:none;background:var(--sf);border:1px solid var(--bd2);color:var(--tx);padding:6px 18px;border-radius:8px;font-size:12px;pointer-events:none;z-index:999;display:none;white-space:nowrap;max-width:60vw;overflow:hidden;text-overflow:ellipsis}
 #toast.show{display:block}
 #prc{position:fixed;pointer-events:none;z-index:500;transform:translate(-50%,-50%);border-radius:50%;border:2px solid #ffffff;display:none}
 #zl{position:fixed;bottom:14px;right:14px;font-size:11px;font-family:'DM Mono',monospace;color:var(--tx2);pointer-events:none;z-index:100}
@@ -312,7 +315,7 @@ input[type=range].native::-webkit-slider-thumb{-webkit-appearance:none;width:22p
 #gallery-btn{position:fixed;top:6px;left:204px;z-index:220;background:var(--sf);border:1px solid var(--bd);border-radius:8px;height:26px;width:60px;font-size:9px;font-family:'DM Mono',monospace;letter-spacing:.04em;color:var(--tx);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;touch-action:manipulation;white-space:nowrap;user-select:none;-webkit-user-select:none}
 #gallery-overlay{position:fixed;inset:0;z-index:550;background:#0a0a14;display:none;flex-direction:column}
 #gallery-overlay.show{display:flex}
-#gallery-header{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--bd);flex-shrink:0}
+#gallery-header{display:flex;align-items:center;gap:10px;padding:calc(var(--sat) + 12px) 16px 12px;border-bottom:1px solid var(--bd);flex-shrink:0}
 #gallery-title{font-size:14px;font-weight:500;color:var(--tx);flex:1}
 #gallery-close{background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer;touch-action:manipulation;padding:4px 8px}
 #gallery-grid{flex:1;overflow-y:auto;padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;-webkit-overflow-scrolling:touch}
@@ -359,16 +362,27 @@ input[type=range].native::-webkit-slider-thumb{-webkit-appearance:none;width:22p
 
 
 /* ── 画面下部ツールバー ── */
+
+/* v60: 上部バー. フルスクリーン(ホーム画面アプリ)でステータスバー(時計/バッテリー)と重ならないよう
+   セーフエリア分だけ下げる. ボタンサイズ(60x26)・隙間(6px)・左右配置は従来どおり.
+   画面幅が足りない時は各ボタンが均等に縮み, 重ならない. 隙間はキャンバス操作可能 (pointer-events:none). */
+:root{--sat-min:0px;--sat:max(env(safe-area-inset-top,0px),var(--sat-min))}
+#topbar{position:fixed;top:calc(var(--sat) + 6px);left:0;right:0;z-index:220;display:flex;justify-content:space-between;gap:12px;
+  padding:0 calc(6px + env(safe-area-inset-right,0px)) 0 calc(6px + env(safe-area-inset-left,0px));pointer-events:none}
+#topbar .tb-group{display:flex;gap:6px;flex:0 1 324px;min-width:0}
+#topbar .tb-right{justify-content:flex-end}
+#topbar .topbtn{position:static;top:auto;left:auto;right:auto;flex:1 1 0;width:auto;min-width:0;max-width:60px;height:26px;
+  pointer-events:auto;overflow:hidden;text-overflow:ellipsis;padding:0 2px}
 </style>
 </head>
 <body>
 <div id="app">
 <canvas id="gl-canvas"></canvas>
 <div id="ca"><div id="cw"><div id="paper"></div></div></div>
-<div class="topbtn" id="sz-btn">SIZE</div>
-<div id="reset-view-btn">FIT</div>
-<div id="rotate-canvas-btn">90°</div>
-<div class="topbtn" id="ref-btn">REF</div>
+<div id="topbar">
+<div class="tb-group"><div class="topbtn" id="sz-btn">SIZE</div><div class="topbtn" id="reset-view-btn">FIT</div><div class="topbtn" id="rotate-canvas-btn">90°</div><div class="topbtn" id="gallery-btn">GALLERY</div><div class="topbtn" id="tl-btn">PLAY</div></div>
+<div class="tb-group tb-right"><div class="topbtn" id="ref-btn">REF</div><div class="topbtn" id="new-btn">NEW</div><label class="topbtn" id="open-btn" for="file-input">OPEN</label><div class="topbtn" id="bpf-save-btn">SAVE</div><div class="topbtn" id="export-btn">EXPORT</div></div>
+</div>
 <input type="file" id="ref-file-input" accept="image/*" style="display:none">
 <div class="toppanel" id="ref-panel">
   <div style="font-size:12px;font-weight:500;color:var(--tx);margin-bottom:8px">下絵設定</div>
@@ -379,13 +393,7 @@ input[type=range].native::-webkit-slider-thumb{-webkit-appearance:none;width:22p
     <button id="ref-transform-btn" style="flex:1;padding:7px;background:var(--sf2);border:1px solid var(--bd2);border-radius:8px;color:var(--tx2);font-size:11px;cursor:pointer;touch-action:manipulation"> 変形</button>
     <button id="ref-delete-btn" style="flex:1;padding:7px;background:var(--sf2);border:1px solid var(--red);border-radius:8px;color:var(--red);font-size:11px;cursor:pointer;touch-action:manipulation">削除</button>
   </div>
-</div><div class="topbtn" id="tl-btn">PLAY</div>
-<div class="topbtn" id="gallery-btn">GALLERY</div>
-<div class="topbtn" id="export-btn">EXPORT</div>
-<div class="topbtn" id="bpf-save-btn">SAVE</div>
-<label class="topbtn" id="open-btn" for="file-input">OPEN</label>
-<div class="topbtn" id="new-btn">NEW</div>
-
+</div>
 <div id="tl-overlay">
   <button id="tl-close">✕</button>
   <canvas id="tl-canvas"></canvas>
@@ -503,7 +511,7 @@ input[type=range].native::-webkit-slider-thumb{-webkit-appearance:none;width:22p
     <button class="shape-btn" data-tool="pen" data-shape="0" style="flex:1;padding:5px 2px;background:var(--sf2);border:1px solid var(--bd2);border-radius:6px;color:var(--tx2);font-size:9px;cursor:pointer;touch-action:manipulation">ハード</button>
     <button class="shape-btn" data-tool="pen" data-shape="1" style="flex:1;padding:5px 2px;background:var(--sf2);border:1px solid var(--bd2);border-radius:6px;color:var(--tx2);font-size:9px;cursor:pointer;touch-action:manipulation">シャープ</button>
     <button class="shape-btn act" data-tool="pen" data-shape="2" style="flex:1;padding:5px 2px;background:var(--sf2);border:1px solid var(--acc);border-radius:6px;color:var(--acc);font-size:9px;cursor:pointer;touch-action:manipulation">標準</button>
-    <button class="shape-btn" data-tool="pen" data-shape="3" style="flex:1;padding:5px 2px;background:var(--sf2);border:1px solid var(--bd2);border-radius:6px;color:var(--tx2);font-size:9px;cursor:pointer;touch-action:manipulation">ソフト</button>
+    <button class="shape-btn" data-tool="pen" data-shape="3" style="flex:1;padding:5px 2px;background:var(--sf2);border:1px solid var(--bd2);border-radius:6px;color:var(--tx2);font-size:9px;cursor:pointer;touch-action:manipulation">エア</button>
   </div>
   <div class="row"><label>不透明度</label><div class="csl" id="csl-opac" data-min="0" data-max="100" data-ratio="5"></div><span class="val" id="v-opac">100%</span></div>
   <div class="row"><label>間隔</label><div class="csl" id="csl-spacing" data-min="1" data-max="200" data-ratio="3"></div><span class="val" id="v-spacing">100%</span></div>
@@ -538,7 +546,7 @@ input[type=range].native::-webkit-slider-thumb{-webkit-appearance:none;width:22p
     <button class="shape-btn" data-tool="marker" data-shape="0" style="flex:1;padding:5px 2px;background:var(--sf2);border:1px solid var(--bd2);border-radius:6px;color:var(--tx2);font-size:9px;cursor:pointer;touch-action:manipulation">ハード</button>
     <button class="shape-btn act" data-tool="marker" data-shape="1" style="flex:1;padding:5px 2px;background:var(--sf2);border:1px solid var(--acc);border-radius:6px;color:var(--acc);font-size:9px;cursor:pointer;touch-action:manipulation">シャープ</button>
     <button class="shape-btn" data-tool="marker" data-shape="2" style="flex:1;padding:5px 2px;background:var(--sf2);border:1px solid var(--bd2);border-radius:6px;color:var(--tx2);font-size:9px;cursor:pointer;touch-action:manipulation">標準</button>
-    <button class="shape-btn" data-tool="marker" data-shape="3" style="flex:1;padding:5px 2px;background:var(--sf2);border:1px solid var(--bd2);border-radius:6px;color:var(--tx2);font-size:9px;cursor:pointer;touch-action:manipulation">ソフト</button>
+    <button class="shape-btn" data-tool="marker" data-shape="3" style="flex:1;padding:5px 2px;background:var(--sf2);border:1px solid var(--bd2);border-radius:6px;color:var(--tx2);font-size:9px;cursor:pointer;touch-action:manipulation">エア</button>
   </div>
   <div class="row"><label>不透明度</label><div class="csl" id="csl-mk-opac" data-min="0" data-max="100" data-ratio="5"></div><span class="val" id="v-mk-opac">80%</span></div>
   <div class="row"><label>間隔</label><div class="csl" id="csl-mk-spacing" data-min="1" data-max="200" data-ratio="3"></div><span class="val" id="v-mk-spacing">50%</span></div>
@@ -600,7 +608,7 @@ input[type=range].native::-webkit-slider-thumb{-webkit-appearance:none;width:22p
 <div id="sel-hint">なげなわで範囲を描いてください</div>
 <!-- v52/v53/v54: 変形モード時のサブモード切替トグル. ツールボタン形式 (rtab スタイル).
      selState='transform' の時のみ表示. 位置は PEN タブの左隣 (画面右、 タブ幅分内側) -->
-<div id="xform-toggle" style="position:fixed;right:38px;top:48px;z-index:280;display:none;flex-direction:column;gap:4px">
+<div id="xform-toggle" style="position:fixed;right:38px;top:calc(var(--sat) + 48px);z-index:280;display:none;flex-direction:column;gap:4px">
   <div id="xform-grid-btn" class="rtab xtog act">
     <div class="rtab-label">GRID</div>
   </div>
@@ -674,6 +682,8 @@ input[type=range].native::-webkit-slider-thumb{-webkit-appearance:none;width:22p
 
 <script>
 'use strict';
+// v60: ホーム画面アプリ(フルスクリーン)ではステータスバーが重なるため最低 20px を確保
+try{if(window.navigator.standalone===true||window.matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches)document.documentElement.style.setProperty('--sat-min','20px');}catch(e){}
 // ── グローバル変数 ────────────────────────────────────────
 let CW=2360,CH=1640;
 // Phase 4b: チャンク分割による大キャンバス対応
@@ -954,7 +964,7 @@ void main(){
   if(u_shape==0){if(dist>0.0)discard;alpha=1.0;}
   else if(u_shape==1){alpha=1.0-smoothstep(-0.4,0.4,dist);if(alpha<0.01)discard;}
   else if(u_shape==2){alpha=1.0-smoothstep(-1.0,1.0,dist);if(alpha<0.01)discard;}
-  else{float d=clamp(-dist/max(r,1.0),0.0,1.0);alpha=d*d;if(alpha<0.005)discard;}
+  else{float t=clamp(1.0+dist/max(r,1.0),0.0,1.0);alpha=(exp(-4.5*t*t)-0.0111)/0.9889;if(alpha<0.004)discard;} // v59: エア (ガウス状. 旧ソフトは削除)
   float fa=u_inkColor.a*v_opac*alpha;
   if(u_erase)o=vec4(0,0,0,fa);
   else{o=vec4(u_inkColor.rgb*fa,fa);}
@@ -1010,9 +1020,9 @@ void main(){o=texture(u_tex,v_uv);}`;
 // Phase 4b: チャンク blit 専用シェーダー (strokeBuf の部分領域をチャンクに転送)
 const CHUNK_BLIT_FS=`#version 300 es
 precision highp float;in vec2 v_uv;uniform sampler2D u_tex;
-uniform vec2 u_srcOff;uniform vec2 u_srcScl;
+uniform vec2 u_srcOff;uniform vec2 u_srcScl;uniform float u_alpha; // v59: エアの最大濃度 (通常=1)
 out vec4 o;
-void main(){o=texture(u_tex,u_srcOff+v_uv*u_srcScl);}`;
+void main(){o=texture(u_tex,u_srcOff+v_uv*u_srcScl)*u_alpha;}`;
 const STROKE_BLIT_FS=`#version 300 es
 precision highp float;
 in vec2 v_uv;
@@ -1025,6 +1035,7 @@ uniform int u_previewMode; // 0=normal, 1=transparent guide
 uniform int u_blend;       // rev39: 0=normal, 1=multiply, 2=overlay
 uniform vec2 u_sbOffset;
 uniform vec2 u_sbSize;
+uniform float u_strokeOpac; // v59: エアの最大濃度 (通常=1)
 out vec4 o;
 void main(){
   vec3 base=texture(u_base,v_uv).rgb;
@@ -1043,11 +1054,11 @@ void main(){
   if(s.a<0.001){o=vec4(base,1);return;}
   if(u_previewMode==1){
     // 透明色ガイド: 白く透ける
-    o=vec4(mix(base,vec3(1.0),s.a),1);
+    o=vec4(mix(base,vec3(1.0),s.a*u_strokeOpac),1);
   } else {
     // un-premultiply stroke color
     vec3 ink=s.rgb/s.a;
-    float a=s.a;
+    float a=s.a*u_strokeOpac;
     vec3 rgb;
     if(u_blend==1){rgb=mix(base,base*ink,a);}        // multiply
     else if(u_blend==2){                              // overlay
@@ -1099,6 +1110,11 @@ let strokeBufTex=null,strokeBufFBO=null,_abActive=false,_pencilMode=false,_sbNee
 // 現在は全面 (0,0,CW,CH). Phase 4a Step B で bbox 限定に変更予定.
 let _sbOffsetX=0, _sbOffsetY=0, _sbW=0, _sbH=0; // beginStroke で設定
 let _strokeOnset=0; // 描き始めランプ用カウンタ
+// v59: エアブラシ (ブラシ形状 3). スタンプ式 + src-over 蓄積. 不透明度はストローク内の最大濃度.
+let _airMode=false,_airOpac=1,_pencilRecBuf=null;
+const AIR_FLOW_K=1.2,AIR_MAX_SPACING=0.25; // 1スタンプの濃度 = AIR_FLOW_K × 間隔比 (間隔を変えても濃さがほぼ一定)
+function _airFlowNow(){const t=activeTool==='marker'?TOOLS.marker:TOOLS.pen;return Math.min(1,AIR_FLOW_K*Math.min(AIR_MAX_SPACING,Math.max(0.05,t.spacing||1.0)));}
+function _strokeCommitAlpha(){return _airMode?_airOpac:1.0;}
 // === 鉛筆モード: 等間隔スタンプ方式 (croquis.js 方式) ===
 let _pencilLastX=0,_pencilLastY=0,_pencilDist=0,_pencilStarted=false;
 function _pencilBegin(sx,sy,f){
@@ -1106,6 +1122,8 @@ function _pencilBegin(sx,sy,f){
   const pt=screenToCanvas(sx,sy);
   _pencilLastX=pt.x;_pencilLastY=pt.y;_pencilDist=0;_pencilStarted=true;
   _lastPressure=f>0?f:0.01;_lastRawPressure=_lastPressure;
+  // v59: スタンプ位置を記録 (undo/タイムラプスの stroke エントリ用. 旧版は鉛筆モードで未記録だった)
+  _pencilRecBuf=[{x:pt.x,y:pt.y,d:1,f:0.01,opac:0}];
 }
 let _pencilStampCount=0;
 function _pencilMove(sx,sy,f){
@@ -1125,7 +1143,7 @@ function _pencilMove(sx,sy,f){
   // 旧版はハードコード d*0.2 (20%) で固定でスライダーが効かなかった.
   const _toolForSp=eraserOn?TOOLS.eraser:(activeTool==='marker'?TOOLS.marker:TOOLS.pen);
   const _spRatio=Math.max(0.05, _toolForSp.spacing||1.0);
-  const spacing=Math.max(0.5, d*_spRatio);
+  const spacing=Math.max(0.5, d*(_airMode?Math.min(_spRatio,AIR_MAX_SPACING):_spRatio)); // v59: エアは間隔 25% 以下に制限 (ビーズ状防止)
   _pencilDist+=dist;
   // 等間隔でスタンプを配置
   while(_pencilDist>=spacing){
@@ -1141,8 +1159,9 @@ function _pencilMove(sx,sy,f){
     const b=segCount*7;
     segArr[b]=sx2;segArr[b+1]=sy2;segArr[b+2]=sx2;segArr[b+3]=sy2;
     segArr[b+4]=_r;segArr[b+5]=_r;
-    segArr[b+6]=opac*_stf;
+    segArr[b+6]=opac*_stf*(_airMode?_airFlowNow():1);
     segCount++;_pencilStampCount++;
+    if(_pencilRecBuf){const lp=_pencilRecBuf[_pencilRecBuf.length-1];if(Math.hypot(sx2-lp.x,sy2-lp.y)>=1.5)_pencilRecBuf.push({x:sx2,y:sy2,d,f:rawF,opac});}
 
     _expandStrokeBBox(sx2,sy2,sx2,sy2,_r);
     _pencilDist-=spacing;
@@ -1542,7 +1561,7 @@ function flushBrushGPU(){
   gl.useProgram(PROG.brush);
   gl.uniform2f(ul(PROG.brush,'u_res'),vpW,vpH);
   gl.uniform2f(ul(PROG.brush,'u_offset'),offX,offY);
-  const shape=eraserOn?0:(activeTool==='marker'?TOOLS.marker.shape:TOOLS.pen.shape);
+  const shape=eraserOn?0:(_airMode?3:(activeTool==='marker'?TOOLS.marker.shape:TOOLS.pen.shape));
   gl.uniform1i(ul(PROG.brush,'u_shape'),shape||0);
   // rev40: u_inkColor.a は基本不透明度のみ. 筆圧不透明度は per-instance (v_opac) で処理.
   const opac = (_replayOverrideOpac!==null)
@@ -1556,6 +1575,12 @@ function flushBrushGPU(){
     gl.blendFuncSeparate(gl.ZERO,gl.ONE,gl.ZERO,gl.ONE_MINUS_SRC_ALPHA);
     gl.uniform4f(ul(PROG.brush,'u_inkColor'),0,0,0,baseO);
     gl.uniform1i(ul(PROG.brush,'u_erase'),1);
+  } else if(_airMode && _abActive){
+    // v59: エア — src-over で蓄積 (濃度は per-instance の v_opac = フロー × 筆圧不透明度)
+    gl.blendEquation(gl.FUNC_ADD);
+    gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniform4f(ul(PROG.brush,'u_inkColor'),inkTransparent?0:r,inkTransparent?0:g,inkTransparent?0:b,1.0);
+    gl.uniform1i(ul(PROG.brush,'u_erase'),0);
   } else if(inkTransparent && _abActive){
     gl.blendEquation(gl.MAX);
     gl.blendFunc(gl.ONE,gl.ONE);
@@ -1743,6 +1768,7 @@ function compositeAndDisplay(){
     gl.uniform2f(ul(PROG.sb,'u_sbOffset'),_sbOffsetX,_sbOffsetY);
     gl.uniform2f(ul(PROG.sb,'u_sbSize'),_sbW,_sbH);
     gl.uniform1i(ul(PROG.sb,'u_previewMode'),inkTransparent?1:0);
+    gl.uniform1f(ul(PROG.sb,'u_strokeOpac'),_airMode?_airOpac:1.0);
     // rev39: アクティブレイヤーのブレンドモードを渡す
     const activeBlend=gLayers[gActiveIdx]?gLayers[gActiveIdx].blend:'normal';
     gl.uniform1i(ul(PROG.sb,'u_blend'),{normal:0,multiply:1,overlay:2}[activeBlend]||0);
@@ -1796,7 +1822,13 @@ function beginStroke(sx,sy,f,isTap){
   _resetStrokeBBox();
   const isPencil=eraserOn?TOOLS.eraser.pencil:(activeTool==='marker'?TOOLS.marker.pencil:TOOLS.pen.pencil);
   _abActive=(!eraserOn)&&!!strokeBufFBO;
-  _pencilMode=isPencil;
+  {
+    // v59: 形状 3 = エア. スタンプ式 (_pencil 経路) を使う.
+    const _tl=eraserOn?TOOLS.eraser:(activeTool==='marker'?TOOLS.marker:TOOLS.pen);
+    _airMode=(!eraserOn)&&(_tl.shape===3);
+    _airOpac=(_tl.opacity!==undefined)?_tl.opacity:1.0;
+  }
+  _pencilMode=isPencil||_airMode;
   {
     const SB_MAX=4096;
     const sbW=strokeBufTex?_sbW:Math.min(CW,SB_MAX);
@@ -2082,7 +2114,7 @@ function finishStroke(_tag){
         gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,strokeBufTex);
         gl.uniform1i(ul(PROG.chunkBlit,'u_tex'),0);
         gl.uniform2f(ul(PROG.chunkBlit,'u_srcOff'),srcU0,srcV0);
-        gl.uniform2f(ul(PROG.chunkBlit,'u_srcScl'),srcUW,srcVH);
+        gl.uniform1f(ul(PROG.chunkBlit,'u_alpha'),_strokeCommitAlpha());gl.uniform2f(ul(PROG.chunkBlit,'u_srcScl'),srcUW,srcVH);
         gl.enable(gl.BLEND);gl.blendEquation(gl.FUNC_ADD);
         if(inkTransparent){
           gl.blendFuncSeparate(gl.ZERO,gl.ONE_MINUS_SRC_ALPHA,gl.ZERO,gl.ONE_MINUS_SRC_ALPHA);
@@ -2099,7 +2131,7 @@ function finishStroke(_tag){
     } else if(layer && _strokeBufCommitted){
       _dbgAdd('BLIT #'+_dbgFinishCount+' SKIP(committed)');
     }
-    _abActive=false;_pencilMode=false;
+    _abActive=false;_pencilMode=false;_airMode=false;
   }
 
   // ===== rev23 案 B: AFTER も GPU snapshot で即時取得 =====
@@ -2130,6 +2162,8 @@ function finishStroke(_tag){
   _resetStrokeBBox();
 
   lastDrawPt=null;stabClear();
+  // v59: スタンプ式 (鉛筆/エア) は _crBuf を使わないため記録バッファを渡す (これが無いと undo 不可だった)
+  if(_pencilRecBuf){if(_pencilRecBuf.length>=2)_crBuf=_pencilRecBuf;_pencilRecBuf=null;}
   _commitRecStroke(_crBuf.slice());
   _crBuf=[];
 }
@@ -2232,7 +2266,7 @@ function _resizeStrokeBuf(){
   // 現ストロークのスタンプ状態もリセット (サイズ変更の前後で不整合になるため)
   _resetStrokeBBox();
   lastDrawPt=null;stabClear();_crBuf=[];segCount=0;
-  _abActive=false;_pencilMode=false;
+  _abActive=false;_pencilMode=false;_airMode=false;_pencilRecBuf=null;
 }
 
 function _ensureLayerShadow(){
@@ -2294,7 +2328,7 @@ function _midCommitStrokeBuf(){
     gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,strokeBufTex);
     gl.uniform1i(ul(PROG.chunkBlit,'u_tex'),0);
     gl.uniform2f(ul(PROG.chunkBlit,'u_srcOff'),srcU0,srcV0);
-    gl.uniform2f(ul(PROG.chunkBlit,'u_srcScl'),srcUW,srcVH);
+    gl.uniform1f(ul(PROG.chunkBlit,'u_alpha'),_strokeCommitAlpha());gl.uniform2f(ul(PROG.chunkBlit,'u_srcScl'),srcUW,srcVH);
     gl.enable(gl.BLEND);gl.blendEquation(gl.FUNC_ADD);
     if(inkTransparent){gl.blendFuncSeparate(gl.ZERO,gl.ONE_MINUS_SRC_ALPHA,gl.ZERO,gl.ONE_MINUS_SRC_ALPHA);}
     else{gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);}
@@ -2606,6 +2640,8 @@ function snapshotBeforeStroke(){
     eraserOn,inkTransparent,
     opacity:eraserOn?TOOLS.eraser.opacity:(activeTool==='marker'?TOOLS.marker.opacity:TOOLS.pen.opacity),
     brushSize:bSize,brushMin:bMin,
+    air:(!eraserOn)&&((activeTool==='marker'?TOOLS.marker:TOOLS.pen).shape===3),
+    airFlow:_airFlowNow(),
     points:[]
   };
 }
@@ -2688,6 +2724,8 @@ function _replayStroke(s,scW,scH){
     gl.bindFramebuffer(gl.FRAMEBUFFER,strokeBufFBO);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   } else { _abActive=false; }
   const _savedPencilMode=_pencilMode;_pencilMode=s.pencil||false;
+  const _savedAir=_airMode,_savedAirOpac=_airOpac;const isAir=!!s.air&&!s.eraserOn;
+  _airMode=isAir;_airOpac=(s.opacity!==undefined)?s.opacity:1.0;if(isAir)_pencilMode=false;
   const _savedPressure=_lastPressure;
   if(!s.eraserOn&&s.layerColor){inkRGBA=[s.layerColor[0],s.layerColor[1],s.layerColor[2],1];}
   // v21 rev6: opacity は _replayOverrideOpac 経由で一時適用.
@@ -2702,10 +2740,13 @@ function _replayStroke(s,scW,scH){
   if(!dp.length){
     // 早期 return 前に状態を復元
     _replayOverrideOpac=_savedOverrideOpac;
-    activeTool=_savedTool;_abActive=_savedAbActive;_pencilMode=_savedPencilMode;_lastPressure=_savedPressure;
+    activeTool=_savedTool;_abActive=_savedAbActive;_pencilMode=_savedPencilMode;_lastPressure=_savedPressure;_airMode=_savedAir;_airOpac=_savedAirOpac;
     return;
   }
   _lastPressure=dp[0].f;
+  if(isAir){
+    for(const q of dp){if(q.d>0)queueDot(q.x,q.y,q.d,_calcPointOpac(q.f)*(s.airFlow||0.2));if(segCount>=(MAX_SEG>>1))flushBrushGPU();}
+  }else{
   // v34: queueDot/queueLine に opac を渡す. 旧コードは引数省略で常に opac=1.0 だった.
   // これによりリプレイで全ストロークが最大濃度に塗り変わるバグを修正.
   if(dp[0].d>0)queueDot(dp[0].x,dp[0].y,dp[0].d,_calcPointOpac(dp[0].f));
@@ -2742,6 +2783,7 @@ function _replayStroke(s,scW,scH){
       last={x:p.x,y:p.y,f:p.f};
     }
   }
+  }
   if(segCount>0)flushBrushGPU();
   // strokeBuf → layer コミット (Phase 4b: multi-chunk)
   if(_abActive&&strokeBufFBO&&!s.eraserOn){
@@ -2763,7 +2805,7 @@ function _replayStroke(s,scW,scH){
         gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,strokeBufTex);
         gl.uniform1i(ul(PROG.chunkBlit,'u_tex'),0);
         gl.uniform2f(ul(PROG.chunkBlit,'u_srcOff'),srcU0,srcV0);
-        gl.uniform2f(ul(PROG.chunkBlit,'u_srcScl'),iw/_sbW,ih/_sbH);
+        gl.uniform1f(ul(PROG.chunkBlit,'u_alpha'),_strokeCommitAlpha());gl.uniform2f(ul(PROG.chunkBlit,'u_srcScl'),iw/_sbW,ih/_sbH);
         gl.enable(gl.BLEND);gl.blendEquation(gl.FUNC_ADD);
         if(s.inkTransparent){gl.blendFuncSeparate(gl.ZERO,gl.ONE_MINUS_SRC_ALPHA,gl.ZERO,gl.ONE_MINUS_SRC_ALPHA);}
         else{gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);}
@@ -2777,7 +2819,7 @@ function _replayStroke(s,scW,scH){
   // 全状態を元に戻す (TOOLS は触っていないので復元不要)
   _replayOverrideOpac=_savedOverrideOpac;
   activeTool=_savedTool;
-  _abActive=_savedAbActive;_pencilMode=_savedPencilMode;_lastPressure=_savedPressure;
+  _abActive=_savedAbActive;_pencilMode=_savedPencilMode;_lastPressure=_savedPressure;_airMode=_savedAir;_airOpac=_savedAirOpac;
 }
 
 function _replayFill(ev){

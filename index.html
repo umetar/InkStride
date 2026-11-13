@@ -9,6 +9,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Inkstride v21r77</title>
 <!--
+  v64: 再生(PLAY/深いundo)を実描画に一致. ストロークに実際の濃さ(始点補正後)・スタンプ間隔・形状を記録し, 再生は設定の再計算をしない. エア/鉛筆のスタンプ間引きを廃止.
+  v63: 不透明度カーブにプリセット(標準/繊細)を追加 (ペン/マーカー/消しゴム). 既定・保存済みカーブは不変.
+  v62: ブラシ(ペン/マーカー/消しゴム)の不透明度スライダーを非線形(指数3)に. 薄い側の分解能を拡大.
+  v61: 始点インクだまり対策 (筆圧→不透明度ON時のみ): 先頭12サンプル(最大60ms)を保留し, 不透明度を直後の最小値で上限クリップ. 通常/エア/鉛筆に適用.
   v60: 上部ボタンを #topbar(左右2グループ, flex) に集約. ステータスバー分だけ下げ, 幅不足時は均等縮小. FIT/90° の無反応を修正.
   v59-air: ブラシ形状「ソフト」を削除し「エア」(ガウス状+スタンプ式+蓄積, 不透明度=最大濃度) に置換.
            鉛筆/エアのスタンプ式ストロークを undo/タイムラインに記録するよう修正.
@@ -373,6 +377,10 @@ input[type=range].native::-webkit-slider-thumb{-webkit-appearance:none;width:22p
 #topbar .tb-right{justify-content:flex-end}
 #topbar .topbtn{position:static;top:auto;left:auto;right:auto;flex:1 1 0;width:auto;min-width:0;max-width:60px;height:26px;
   pointer-events:auto;overflow:hidden;text-overflow:ellipsis;padding:0 2px}
+/* v63: 不透明度カーブのプリセットボタン */
+.preset-row{display:flex;gap:4px;width:100%;margin:2px 0 8px}
+.preset-btn{flex:1;padding:6px 4px;background:var(--sf2);border:1px solid var(--bd2);border-radius:6px;color:var(--tx2);font-size:10px;cursor:pointer;touch-action:manipulation}
+.preset-btn.act{border-color:var(--acc);color:var(--acc);background:#0a1525}
 </style>
 </head>
 <body>
@@ -530,6 +538,7 @@ input[type=range].native::-webkit-slider-thumb{-webkit-appearance:none;width:22p
   <div id="pr-opac-sec">
     <div class="slabel" style="margin-top:4px">不透明度カーブ</div>
     <canvas class="curve-cv" id="opac-curve-cv" width="244" height="100"></canvas>
+    <div class="preset-row"><button class="preset-btn" data-opac-tool="pen" data-opac-preset="std">標準</button><button class="preset-btn" data-opac-tool="pen" data-opac-preset="fine">繊細</button></div>
     <div style="font-size:9px;color:var(--tx2);margin-bottom:6px">点をドラッグ（端点はY軸のみ）</div>
   </div>
 </div></div>
@@ -565,6 +574,7 @@ input[type=range].native::-webkit-slider-thumb{-webkit-appearance:none;width:22p
   <div id="mk-pr-opac-sec" style="opacity:.4">
     <div class="slabel" style="margin-top:4px">不透明度カーブ</div>
     <canvas class="curve-cv" id="mk-opac-curve-cv" width="244" height="100"></canvas>
+    <div class="preset-row"><button class="preset-btn" data-opac-tool="marker" data-opac-preset="std">標準</button><button class="preset-btn" data-opac-tool="marker" data-opac-preset="fine">繊細</button></div>
     <div style="font-size:9px;color:var(--tx2);margin-bottom:6px">点をドラッグ（端点はY軸のみ）</div>
   </div>
 </div></div>
@@ -594,6 +604,7 @@ input[type=range].native::-webkit-slider-thumb{-webkit-appearance:none;width:22p
   <div id="er-pr-opac-sec" style="opacity:.4">
     <div class="slabel" style="margin-top:4px">不透明度カーブ</div>
     <canvas class="curve-cv" id="er-opac-curve-cv" width="244" height="100"></canvas>
+    <div class="preset-row"><button class="preset-btn" data-opac-tool="eraser" data-opac-preset="std">標準</button><button class="preset-btn" data-opac-tool="eraser" data-opac-preset="fine">繊細</button></div>
     <div style="font-size:9px;color:var(--tx2);margin-bottom:6px">点をドラッグ（端点はY軸のみ）</div>
   </div>
 </div></div>
@@ -1111,6 +1122,12 @@ let strokeBufTex=null,strokeBufFBO=null,_abActive=false,_pencilMode=false,_sbNee
 let _sbOffsetX=0, _sbOffsetY=0, _sbW=0, _sbH=0; // beginStroke で設定
 let _strokeOnset=0; // 描き始めランプ用カウンタ
 // v59: エアブラシ (ブラシ形状 3). スタンプ式 + src-over 蓄積. 不透明度はストローク内の最大濃度.
+// v61: 始点インクだまり対策 (筆圧→不透明度ON時のみ). 接触時の圧力の山で始点だけ濃くなるのを,
+//   先頭 START_HOLD_N サンプルの描画を保留し「直後サンプルの最小値で上限クリップ」して防ぐ.
+//   強制フェードではない (実際に入力された濃さは超えない). 筆圧→不透明度OFFの時は従来と完全に同一.
+const START_HOLD_N=12,START_HOLD_MS=60;
+let _startReleased=true,_startHoldT0=0,_stampHold=null,_stampHoldT0=0;
+function _startHoldWanted(){const t=eraserOn?TOOLS.eraser:(activeTool==='marker'?TOOLS.marker:TOOLS.pen);return !!t.pressureOpac;}
 let _airMode=false,_airOpac=1,_pencilRecBuf=null;
 const AIR_FLOW_K=1.2,AIR_MAX_SPACING=0.25; // 1スタンプの濃度 = AIR_FLOW_K × 間隔比 (間隔を変えても濃さがほぼ一定)
 function _airFlowNow(){const t=activeTool==='marker'?TOOLS.marker:TOOLS.pen;return Math.min(1,AIR_FLOW_K*Math.min(AIR_MAX_SPACING,Math.max(0.05,t.spacing||1.0)));}
@@ -1123,7 +1140,8 @@ function _pencilBegin(sx,sy,f){
   _pencilLastX=pt.x;_pencilLastY=pt.y;_pencilDist=0;_pencilStarted=true;
   _lastPressure=f>0?f:0.01;_lastRawPressure=_lastPressure;
   // v59: スタンプ位置を記録 (undo/タイムラプスの stroke エントリ用. 旧版は鉛筆モードで未記録だった)
-  _pencilRecBuf=[{x:pt.x,y:pt.y,d:1,f:0.01,opac:0}];
+  _pencilRecBuf=[{x:pt.x,y:pt.y,d:1,f:0.02,opac:0}]; // v64: 始点を保持 (f>0.011 なので除外されない). 再生の起点に使う
+  _stampHold=_startHoldWanted()?[]:null; // v61
 }
 let _pencilStampCount=0;
 function _pencilMove(sx,sy,f){
@@ -1151,27 +1169,38 @@ function _pencilMove(sx,sy,f){
     const sx2=_pencilLastX+dx*Math.max(0,Math.min(1,t));
     const sy2=_pencilLastY+dy*Math.max(0,Math.min(1,t));
     _ensureStrokeBufCovers(sx2,sy2,d/2);
-    if(segCount>=MAX_SEG)flushBrushGPU();
+    if(segCount>=MAX_SEG){_flushStampHold();flushBrushGPU();}
     // v51: 始点入り抜き適用
     _strokeDistAcc+=spacing;
     const _stf=_calcStartTaperFactor();
     const _r=Math.max(0.5, (d/2)*(_stf<1.0?_stf:1.0));
-    const b=segCount*7;
+    const _si=segCount;const b=segCount*7;
     segArr[b]=sx2;segArr[b+1]=sy2;segArr[b+2]=sx2;segArr[b+3]=sy2;
     segArr[b+4]=_r;segArr[b+5]=_r;
     segArr[b+6]=opac*_stf*(_airMode?_airFlowNow():1);
     segCount++;_pencilStampCount++;
-    if(_pencilRecBuf){const lp=_pencilRecBuf[_pencilRecBuf.length-1];if(Math.hypot(sx2-lp.x,sy2-lp.y)>=1.5)_pencilRecBuf.push({x:sx2,y:sy2,d,f:rawF,opac});}
+    let _rec=null;
+    if(_pencilRecBuf){const lp=_pencilRecBuf[_pencilRecBuf.length-1];if(Math.hypot(sx2-lp.x,sy2-lp.y)>=1.5){_rec={x:sx2,y:sy2,d,f:rawF,opac};_pencilRecBuf.push(_rec);}}
+    if(_stampHold){_stampHold.push({i:_si,o:opac,m:_stf*(_airMode?_airFlowNow():1),r:_rec});if(_stampHold.length===1)_stampHoldT0=performance.now();}
 
     _expandStrokeBBox(sx2,sy2,sx2,sy2,_r);
     _pencilDist-=spacing;
   }
   _pencilLastX=pt.x;_pencilLastY=pt.y;
-  if(segCount>0)flushBrushGPU();
+  if(_stampHold&&(_stampHold.length>=START_HOLD_N||(_stampHold.length>0&&performance.now()-_stampHoldT0>START_HOLD_MS)))_flushStampHold();
+  if(segCount>0&&!_stampHold)flushBrushGPU();
   scheduleDraw();
+}
+// v61: 保留中の先頭スタンプの不透明度を, 後ろから見た最小値で上限クリップして確定
+function _flushStampHold(){
+  const h=_stampHold;_stampHold=null;
+  if(!h||!h.length)return;
+  for(let k=h.length-2;k>=0;k--){if(h[k].o>h[k+1].o)h[k].o=h[k+1].o;}
+  for(const e of h){segArr[e.i*7+6]=e.o*e.m;if(e.r)e.r.opac=e.o;} // v64: 記録側にも補正後の濃さを反映
 }
 function _pencilEnd(){
   _pencilStarted=false;
+  _flushStampHold();
   if(segCount>0)flushBrushGPU();
 }
 
@@ -1241,6 +1270,7 @@ let _eyedropOwner=null;
 // _replayStroke が前後で設定/解除する.
 // TOOLS を直接書き換える旧方式と違い, ユーザーのブラシ設定を汚染しない.
 let _replayOverrideOpac=null;
+let _replayShape=null; // v64: 再生時は記録時のブラシ形状を使う (null=通常動作)
 
 // === rev25: ペンスポイト遅延機構 (旧 v21 rev7) は撤去 ===
 // 旧: ペン pointerdown 後, PEN_EYEDROP_DELAY ms または PEN_STROKE_START_DIST px
@@ -1561,7 +1591,7 @@ function flushBrushGPU(){
   gl.useProgram(PROG.brush);
   gl.uniform2f(ul(PROG.brush,'u_res'),vpW,vpH);
   gl.uniform2f(ul(PROG.brush,'u_offset'),offX,offY);
-  const shape=eraserOn?0:(_airMode?3:(activeTool==='marker'?TOOLS.marker.shape:TOOLS.pen.shape));
+  const shape=eraserOn?0:(_airMode?3:(_replayShape!==null?_replayShape:(activeTool==='marker'?TOOLS.marker.shape:TOOLS.pen.shape)));
   gl.uniform1i(ul(PROG.brush,'u_shape'),shape||0);
   // rev40: u_inkColor.a は基本不透明度のみ. 筆圧不透明度は per-instance (v_opac) で処理.
   const opac = (_replayOverrideOpac!==null)
@@ -1854,6 +1884,7 @@ function beginStroke(sx,sy,f,isTap){
     _captureLayerShadow();
   }
   _strokeOnset=0;_strokePointCount=0;
+  _startReleased=!_startHoldWanted();_startHoldT0=0; // v61
   // v36: 始点フェードインのため _lastPressure を 0 から開始.
   // continueStroke の上昇ランプ (旧 0.7/0.3) で徐々に入力筆圧へ追従する.
   _lastPressure=0;
@@ -1926,7 +1957,24 @@ function continueStroke(sx,sy,f){
     const _ldp=lastDrawPt?(lastDrawPt.x.toFixed(1)+','+lastDrawPt.y.toFixed(1)):'null';
     _dbgAdd('CONT #'+_dbgContCount+' n='+n+' lDP='+_ldp+' xy='+pt.x.toFixed(1)+','+pt.y.toFixed(1));
   }
+  if(n===2)_startHoldT0=performance.now();
   if(n<3){expandDirty(pt.x,pt.y,d);return;}
+  if(!_startReleased){
+    // v61: 先頭区間は保留. 規定サンプル数 or 時間に達したら補正してまとめて描画.
+    if((n-1)<START_HOLD_N&&(performance.now()-_startHoldT0)<START_HOLD_MS){expandDirty(pt.x,pt.y,d);return;}
+    _flushStartHold();
+    expandDirty(pt.x,pt.y,d);
+    if(segCount>0)flushBrushGPU();
+    scheduleDraw();
+    return;
+  }
+  _drawTriple(n);
+  expandDirty(pt.x,pt.y,d);
+  if(segCount>0)flushBrushGPU();
+  scheduleDraw();
+}
+// v61: continueStroke から分離 (内容は従来のまま). n = _crBuf 内の「最新点の個数」.
+function _drawTriple(n){
   // rev78: 中点ベジェ補間 — 各セグメントは1回だけ描画、二重化が構造的に不可能
   const p0=_crBuf[n-3], p1=_crBuf[n-2], p2=_crBuf[n-1];
   const m0x=(p0.x+p1.x)*0.5, m0y=(p0.y+p1.y)*0.5;
@@ -1971,15 +2019,21 @@ function continueStroke(sx,sy,f){
       lastDrawPt={x,y,d:di,opac:oi}; // v46: opac 保持
     }
   }
-  expandDirty(p2.x,p2.y,p2.d);
-  if(segCount>0)flushBrushGPU();
-  scheduleDraw();
+}
+function _flushStartHold(){
+  if(_startReleased)return;
+  _startReleased=true;
+  const n=_crBuf.length;
+  // 先頭 (index 0 は人工点) 以降の不透明度を, 後ろから見た最小値で上限クリップ. 上昇していく筆圧はそのまま.
+  for(let i=n-2;i>=1;i--){if(_crBuf[i].opac>_crBuf[i+1].opac)_crBuf[i].opac=_crBuf[i+1].opac;}
+  for(let k=3;k<=n;k++)_drawTriple(k);
 }
 let _dbgFinishCount=0;
 function finishStroke(_tag){
   _dbgFinishCount++;
   _dbgAdd('FINISH #'+_dbgFinishCount+'['+(_tag||'?')+'] crBuf='+_crBuf.length+' lastDrPt='+(lastDrawPt?'Y':'N')+' ab='+(_abActive?1:0)+' aPid='+(activePenId!==null?1:0));
   if(_pencilMode&&_pencilStarted){_pencilEnd();}
+  _flushStartHold(); // v61: 保留中の先頭区間を補正して描画
   // v43: タップ単発の検出と描画.
   // pointerdown のみで pointermove が来なかった場合、 _crBuf には人工点 (opac=0, d=1) が
   // 1つだけ入っており、 末尾補完も走らないため何も描画されない. これがタップが
@@ -2266,7 +2320,7 @@ function _resizeStrokeBuf(){
   // 現ストロークのスタンプ状態もリセット (サイズ変更の前後で不整合になるため)
   _resetStrokeBBox();
   lastDrawPt=null;stabClear();_crBuf=[];segCount=0;
-  _abActive=false;_pencilMode=false;_airMode=false;_pencilRecBuf=null;
+  _abActive=false;_pencilMode=false;_airMode=false;_pencilRecBuf=null;_stampHold=null;_startReleased=true;
 }
 
 function _ensureLayerShadow(){
@@ -2642,6 +2696,11 @@ function snapshotBeforeStroke(){
     brushSize:bSize,brushMin:bMin,
     air:(!eraserOn)&&((activeTool==='marker'?TOOLS.marker:TOOLS.pen).shape===3),
     airFlow:_airFlowNow(),
+    // v64: 再生を実描画に一致させるための記録 (設定を後で変えても再生が変わらないようにする)
+    shape:eraserOn?0:(activeTool==='marker'?TOOLS.marker:TOOLS.pen).shape,
+    pencil:!!(eraserOn?TOOLS.eraser:(activeTool==='marker'?TOOLS.marker:TOOLS.pen)).pencil,
+    stamp:!!((eraserOn?TOOLS.eraser:(activeTool==='marker'?TOOLS.marker:TOOLS.pen)).pencil||((!eraserOn)&&(activeTool==='marker'?TOOLS.marker:TOOLS.pen).shape===3)),
+    spRatio:(function(){const t=eraserOn?TOOLS.eraser:(activeTool==='marker'?TOOLS.marker:TOOLS.pen);const r=Math.max(0.05,t.spacing||1.0);return((!eraserOn)&&t.shape===3)?Math.min(r,AIR_MAX_SPACING):r;})(),
     points:[]
   };
 }
@@ -2661,7 +2720,8 @@ function _commitRecStroke(crBuf){
     Math.round(p.x/CW*10000)/10000,
     Math.round(p.y/CH*10000)/10000,
     Math.round(p.d/sc*10000)/10000,
-    Math.round((p.f||1.0)*10000)/10000
+    Math.round((p.f||1.0)*10000)/10000,
+    Math.round((p.opac!=null?p.opac:1)*10000)/10000 // v64: 5番目 = 実際に適用した不透明度 (始点補正後)
   ]));
   if(_recStroke.points.length===0){_recStroke=null;return;}
   _recStroke.pointCount=_recStroke.points.length;
@@ -2732,24 +2792,45 @@ function _replayStroke(s,scW,scH){
   // TOOLS を直接書き換える旧方式は replay 中にユーザーのブラシ設定が狂って見える
   // 問題と, 途中中断時に書き換えが残る問題があった.
   const _savedOverrideOpac = _replayOverrideOpac;
+  const _savedShape=_replayShape;_replayShape=(s.shape!==undefined)?s.shape:null; // v64
   _replayOverrideOpac = (s.opacity!==undefined) ? s.opacity : 1.0;
   const tw=scW||CW,th=scH||CH,sc=Math.max(tw,th);
   // v21 rev6: 点データが4要素 (x,y,d,f) か3要素 (旧) かを判定
   const hasPressure = s.points.length>0 && s.points[0].length>=4;
-  const dp=s.points.map(p=>({x:p[0]*tw,y:p[1]*th,d:p[2]*sc,f:hasPressure?p[3]:1.0}));
+  const hasOpac = s.points.length>0 && s.points[0].length>=5; // v64: 記録済みの濃さがあれば使う (旧データは従来どおり f から再計算)
+  const dp=s.points.map(p=>({x:p[0]*tw,y:p[1]*th,d:p[2]*sc,f:hasPressure?p[3]:1.0,o:hasOpac?p[4]:undefined}));
   if(!dp.length){
     // 早期 return 前に状態を復元
-    _replayOverrideOpac=_savedOverrideOpac;
+    _replayOverrideOpac=_savedOverrideOpac;_replayShape=_savedShape;
     activeTool=_savedTool;_abActive=_savedAbActive;_pencilMode=_savedPencilMode;_lastPressure=_savedPressure;_airMode=_savedAir;_airOpac=_savedAirOpac;
     return;
   }
   _lastPressure=dp[0].f;
-  if(isAir){
+  if((isAir||s.stamp)&&s.spRatio){
+    // v64: スタンプ式 (エア/鉛筆) — 実描画 (_pencilMove) と同じ間隔・濃さで打ち直す
+    const flow=isAir?(s.airFlow||0.2):1;
+    let lx=dp[0].x,ly=dp[0].y,acc=0;
+    for(let i=1;i<dp.length;i++){
+      const q=dp[i],dx=q.x-lx,dy=q.y-ly,dist=Math.hypot(dx,dy);
+      if(dist<0.1)continue;
+      const d=Math.max(1,q.d),spacing=Math.max(0.5,d*s.spRatio);
+      const oi=(hasOpac?q.o:_calcPointOpac(q.f))*flow;
+      acc+=dist;
+      while(acc>=spacing){
+        const t=Math.max(0,Math.min(1,1-(acc-spacing)/dist));
+        queueDot(lx+dx*t,ly+dy*t,d,oi);
+        acc-=spacing;
+        if(segCount>=(MAX_SEG>>1))flushBrushGPU();
+      }
+      lx=q.x;ly=q.y;
+    }
+  }else if(isAir){
+    // 旧データ (間隔情報なし): 記録点をそのままスタンプとして打つ
     for(const q of dp){if(q.d>0)queueDot(q.x,q.y,q.d,_calcPointOpac(q.f)*(s.airFlow||0.2));if(segCount>=(MAX_SEG>>1))flushBrushGPU();}
   }else{
   // v34: queueDot/queueLine に opac を渡す. 旧コードは引数省略で常に opac=1.0 だった.
   // これによりリプレイで全ストロークが最大濃度に塗り変わるバグを修正.
-  if(dp[0].d>0)queueDot(dp[0].x,dp[0].y,dp[0].d,_calcPointOpac(dp[0].f));
+  if(dp[0].d>0)queueDot(dp[0].x,dp[0].y,dp[0].d,hasOpac?dp[0].o*0.5:_calcPointOpac(dp[0].f)); // v64: 実描画の始点は最初の濃さの半分から始まる
   let last={x:dp[0].x,y:dp[0].y,f:dp[0].f};
   for(let n=4;n<=dp.length;n++){
     const p0=dp[n-4],p1=dp[n-3],p2=dp[n-2],p3=dp[n-1];
@@ -2763,7 +2844,7 @@ function _replayStroke(s,scW,scH){
       const y=0.5*((2*p1.y)+(-p0.y+p2.y)*t+(2*p0.y-5*p1.y+4*p2.y-p3.y)*t2+(-p0.y+3*p1.y-3*p2.y+p3.y)*t3);
       const d=p1.d+(p2.d-p1.d)*(i/segs); // 筆圧サイズ補間
       const fi=p1.f+(p2.f-p1.f)*(i/segs); // 筆圧 f も補間
-      const oi=_calcPointOpac(fi);        // 各ポイントの不透明度
+      const oi=hasOpac?(p1.o+(p2.o-p1.o)*(i/segs)):_calcPointOpac(fi);        // v64: 記録済みの濃さを補間 (各ポイントの不透明度)
       queueLine(last.x,last.y,x,y,d,d,oi);
       last={x,y,f:fi};
     }
@@ -2778,7 +2859,7 @@ function _replayStroke(s,scW,scH){
       const p=dp[i];
       // 末尾補完も筆圧を引き継ぐ
       _lastPressure = p.f;
-      const oi=_calcPointOpac(p.f);
+      const oi=hasOpac?p.o:_calcPointOpac(p.f);
       queueLine(last.x,last.y,p.x,p.y,p.d,p.d,oi);
       last={x:p.x,y:p.y,f:p.f};
     }
@@ -2817,7 +2898,7 @@ function _replayStroke(s,scW,scH){
     }
   }
   // 全状態を元に戻す (TOOLS は触っていないので復元不要)
-  _replayOverrideOpac=_savedOverrideOpac;
+  _replayOverrideOpac=_savedOverrideOpac;_replayShape=_savedShape;
   activeTool=_savedTool;
   _abActive=_savedAbActive;_pencilMode=_savedPencilMode;_lastPressure=_savedPressure;_airMode=_savedAir;_airOpac=_savedAirOpac;
 }
@@ -5987,6 +6068,22 @@ function _sampleCanvasColor(screenX,screenY){
   }catch(e){return inkHex;}
 }
 
+// v62: ブラシ不透明度スライダーを非線形 (べき乗) に. つまみ位置 t(0..1) → 不透明度 = t^OPAC_GAMMA.
+//   薄塗り(3〜15%)の分解能を上げる. 保存される値は実際の不透明度のまま (表示も実際の%).
+//   旧版の保存値はそのまま有効 (つまみ位置だけ新しい割り当てに追従).
+const OPAC_GAMMA=3;
+function _opacToPos(o){return Math.round(100*Math.pow(Math.max(0,Math.min(1,o)),1/OPAC_GAMMA));}
+function _posToOpac(v){return Math.pow(Math.max(0,Math.min(100,v))/100,OPAC_GAMMA);}
+function _fmtOpac(o){const p=o*100;return(p<10?p.toFixed(1):Math.round(p))+'%';}
+function initOpacSlider(sliderId,labelId,toolKey,defOp){
+  const t0=TOOLS[toolKey];
+  const cur=(t0.opacity!==undefined&&t0.opacity!==null)?t0.opacity:defOp;
+  const lab=document.getElementById(labelId);
+  if(lab)lab.textContent=_fmtOpac(cur);
+  // TOOLS[toolKey] は毎回引く (リセットボタンでオブジェクトが差し替わるため)
+  initCsl(sliderId,_opacToPos(cur),v=>{const o=_posToOpac(v);TOOLS[toolKey].opacity=o;if(lab)lab.textContent=_fmtOpac(o);});
+}
+
 // ── init ─────────────────────────────────────────────────
 (function init(){
   if(!initWebGL())return;
@@ -6051,7 +6148,7 @@ function _sampleCanvasColor(screenX,screenY){
   initCsl('csl-sz',TOOLS.pen.sz,v=>{TOOLS.pen.sz=v;if(activeTool==='pen')bSize=v;document.getElementById('v-sz').textContent=v+'px';drawPen();});
   initCsl('csl-msz',TOOLS.pen.min,v=>{TOOLS.pen.min=v;if(activeTool==='pen')bMin=v;document.getElementById('v-msz').textContent=v+'px';drawPen();});
   initCsl('csl-stab',TOOLS.pen.stab,v=>{TOOLS.pen.stab=v;if(activeTool==='pen')stabLen=v;document.getElementById('v-stab').textContent=v===0?'OFF':v;drawStabOn('stab-cv',v);});
-  initCsl('csl-opac',Math.round((TOOLS.pen.opacity||1)*100),v=>{TOOLS.pen.opacity=v/100;document.getElementById('v-opac').textContent=v+'%';});
+  initOpacSlider('csl-opac','v-opac','pen',1.0);
   // ブラシ形状ボタン
   document.querySelectorAll('.shape-btn').forEach(btn=>{
     btn.addEventListener('pointerdown',e=>{
@@ -6097,7 +6194,7 @@ function _sampleCanvasColor(screenX,screenY){
   initCsl('csl-mk-sz',TOOLS.marker.sz,v=>{TOOLS.marker.sz=v;if(activeTool==='marker')bSize=v;document.getElementById('v-mk-sz').textContent=v+'px';drawMk();});
   initCsl('csl-mk-msz',TOOLS.marker.min,v=>{TOOLS.marker.min=v;if(activeTool==='marker')bMin=v;document.getElementById('v-mk-msz').textContent=v+'px';drawMk();});
   initCsl('csl-mk-stab',TOOLS.marker.stab,v=>{TOOLS.marker.stab=v;if(activeTool==='marker')stabLen=v;document.getElementById('v-mk-stab').textContent=v;drawStabOn('mk-stab-cv',v);});
-  initCsl('csl-mk-opac',Math.round((TOOLS.marker.opacity||0.8)*100),v=>{TOOLS.marker.opacity=v/100;document.getElementById('v-mk-opac').textContent=v+'%';});
+  initOpacSlider('csl-mk-opac','v-mk-opac','marker',0.8);
   initCsl('csl-mk-spacing',Math.round((TOOLS.marker.spacing||0.5)*100),v=>{TOOLS.marker.spacing=v/100;document.getElementById('v-mk-spacing').textContent=v+'%';});
   initCsl('csl-mk-thr',Math.round((TOOLS.marker.thresh||0)*100),v=>{TOOLS.marker.thresh=v/100;if(activeTool==='marker')bThresh=TOOLS.marker.thresh;document.getElementById('v-mk-thr').textContent=v+'%';drawMk();});
   // v47: マーカー始点無視 (デッドゾーン) スライダー
@@ -6132,7 +6229,7 @@ function _sampleCanvasColor(screenX,screenY){
   initCsl('csl-esz',TOOLS.eraser.sz,v=>{TOOLS.eraser.sz=v;eSize=v;document.getElementById('v-esz').textContent=v+'px';drawEr();});
   initCsl('csl-emsz',TOOLS.eraser.min,v=>{TOOLS.eraser.min=v;eMin=v;document.getElementById('v-emsz').textContent=v+'px';drawEr();});
   initCsl('csl-estab',TOOLS.eraser.stab,v=>{TOOLS.eraser.stab=v;eStab=v;document.getElementById('v-estab').textContent=v;drawStabOn('er-stab-cv',v);});
-  initCsl('csl-er-opac',Math.round((TOOLS.eraser.opacity||1)*100),v=>{TOOLS.eraser.opacity=v/100;document.getElementById('v-er-opac').textContent=v+'%';});
+  initOpacSlider('csl-er-opac','v-er-opac','eraser',1.0);
   initCsl('csl-er-spacing',Math.round((TOOLS.eraser.spacing||0.8)*100),v=>{TOOLS.eraser.spacing=v/100;document.getElementById('v-er-spacing').textContent=v+'%';});
   initCsl('csl-er-thr',Math.round((TOOLS.eraser.thresh||0)*100),v=>{TOOLS.eraser.thresh=v/100;eThresh=TOOLS.eraser.thresh;document.getElementById('v-er-thr').textContent=v+'%';drawEr();});
   document.getElementById('cb-er-pr').checked=TOOLS.eraser.pressure;
@@ -6146,6 +6243,38 @@ function _sampleCanvasColor(screenX,screenY){
   initCsl('csl-er-stap',TOOLS.eraser.startTaper||0,v=>{TOOLS.eraser.startTaper=v;document.getElementById('v-er-stap').textContent=v;});
   initCsl('csl-er-etap',TOOLS.eraser.endTaper||0,v=>{TOOLS.eraser.endTaper=v;document.getElementById('v-er-etap').textContent=v;});
   document.getElementById('er-pr-sec').style.opacity=TOOLS.eraser.pressure?'1':'0.4';
+
+  // v63: 不透明度カーブのプリセット. 標準 = 従来の既定 (軽筆圧で濃い) / 繊細 = 薄い濃度を軽いストロークで出しやすい.
+  //   カーブは従来どおり点ドラッグで微調整可. 保存済みカーブは自動では変更しない.
+  (function(){
+    const STD=[[0,0],[0.05,0.5],[0.15,0.85],[0.3,0.95],[0.5,1],[0.75,1],[1,1]];
+    const FINE=[[0,0],[0.08,0.03],[0.2,0.12],[0.35,0.30],[0.5,0.52],[0.7,0.80],[1,1]];
+    const PRESETS={std:STD,fine:FINE};
+    const REDRAW={pen:()=>drawPenOpacCurve&&drawPenOpacCurve(),marker:()=>drawMkOpacCurve&&drawMkOpacCurve(),eraser:()=>drawErOpacCurve&&drawErOpacCurve()};
+    const CVID={pen:'opac-curve-cv',marker:'mk-opac-curve-cv',eraser:'er-opac-curve-cv'};
+    const same=(pts,preset)=>Array.isArray(pts)&&pts.length===preset.length&&pts.every((q,i)=>Math.abs(q.x-preset[i][0])<1e-3&&Math.abs(q.y-preset[i][1])<1e-3);
+    function sync(tool){
+      document.querySelectorAll('.preset-btn[data-opac-tool="'+tool+'"]').forEach(b=>{
+        b.classList.toggle('act',same(TOOLS[tool].opacPts,PRESETS[b.dataset.opacPreset]));
+      });
+    }
+    document.querySelectorAll('.preset-btn').forEach(btn=>{
+      btn.addEventListener('pointerdown',e=>{
+        e.preventDefault();e.stopPropagation();
+        const tool=btn.dataset.opacTool,key=btn.dataset.opacPreset;
+        TOOLS[tool].opacPts=PRESETS[key].map(([x,y])=>({x,y}));
+        REDRAW[tool]();sync(tool);
+        try{saveState();}catch(_){}
+        showToast('不透明度カーブ: '+(key==='fine'?'繊細':'標準'));
+      });
+    });
+    for(const tool of ['pen','marker','eraser']){
+      sync(tool);
+      const cv=document.getElementById(CVID[tool]);
+      // 点をドラッグして形が変わったらハイライトを外す
+      if(cv)['pointerup','touchend','pointercancel'].forEach(ev=>cv.addEventListener(ev,()=>setTimeout(()=>sync(tool),0)));
+    }
+  })();
 
   drawStabOn('stab-cv',TOOLS.pen.stab);drawStabOn('mk-stab-cv',TOOLS.marker.stab);drawStabOn('er-stab-cv',TOOLS.eraser.stab);
   document.getElementById('sz-cur').textContent=CW+'×'+CH;
